@@ -3,7 +3,9 @@
 package dockerstatus
 
 import (
+	"fmt"
 	"github.com/CiscoCloud/distributive/tabular"
+	log "github.com/Sirupsen/logrus"
 	"os/exec"
 	"strings"
 )
@@ -25,6 +27,22 @@ func DockerImageRepositories() (images []string, err error) {
 	return tabular.GetColumnByHeader("REPOSITORIES", table), nil
 }
 
+func parseRunningContainers(output string) (containers []string) {
+	// the output of `docker ps -a` has spaces in columns, but each column
+	// is separated by 2 or more spaces. Just what Probabalistic was made for!
+	lines := tabular.ProbabalisticSplit(string(output))
+	log.Debugf("Docker containers table: %s", tabular.ToString(lines))
+	names := tabular.GetColumnByHeader("IMAGE", lines)
+	statuses := tabular.GetColumnByHeader("STATUS", lines)
+	for i, status := range statuses {
+		// index error caught by second condition in if clause
+		if strings.Contains(status, "Up") && len(names) > i {
+			containers = append(containers, names[i])
+		}
+	}
+	return containers
+}
+
 // RunningContainers returns a list of names of running docker containers
 // (what's under the IMAGE column of `docker ps -a` if it has status "Up".
 func RunningContainers() (containers []string, err error) {
@@ -36,17 +54,9 @@ func RunningContainers() (containers []string, err error) {
 		if err != nil {
 			return containers, err
 		}
+	} else if out == nil {
+		err = fmt.Errorf("The command %v produced no output", cmd.Args)
+		return containers, err
 	}
-	// the output of `docker ps -a` has spaces in columns, but each column
-	// is separated by 2 or more spaces. Just what Probabalistic was made for!
-	lines := tabular.ProbabalisticSplit(string(out))
-	names := tabular.GetColumnByHeader("IMAGE", lines)
-	statuses := tabular.GetColumnByHeader("STATUS", lines)
-	for i, status := range statuses {
-		// index error caught by second condition in if clause
-		if strings.Contains(status, "Up") && len(names) > i {
-			containers = append(containers, names[i])
-		}
-	}
-	return containers, nil
+	return parseRunningContainers(string(out)), nil
 }
